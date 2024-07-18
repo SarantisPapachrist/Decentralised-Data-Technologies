@@ -1,0 +1,140 @@
+# Απαραίτητες Βιβλιοθήκες
+
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
+from pyspark.sql.functions import col, avg, lit, concat_ws, udf, array, when, regexp_replace, expr, year, min, least, coalesce, lit
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType, FloatType
+
+
+#####################################################################################################
+
+
+# Διάβασμα Αρχείου tables/tour_occ_ninat.xlsx
+
+# Path για το file tour_occ_ninat.xlsx
+eurostat_path = "dbfs:/FileStore/tables/tour_occ_ninat.xlsx"
+
+# Διάβασμα του αρχείου Eurostat με τη βιβλιοθήκη com.crealytics.spark.excel
+eurostat_df = (
+    spark.read.format("com.crealytics.spark.excel")
+    .option("header", "true")  
+    .option("inferSchema", "false")  
+    .option("dataAddress", "'Sheet1'!A9:K45")
+    .load(eurostat_path)
+)
+
+display(eurostat_df)
+
+
+#####################################################################################################
+
+
+# Προεπεξεργασία Δεδομένων στο Dataframe
+
+# Μετατροπή των στηλών με τους αριθμούς από string σε float
+float_clm = ["2006", "2007", "2008", "2009", "2010", "2011", "2012", "2013", "2014", "2015"]
+for col_name in float_clm:
+    eurostat_df = eurostat_df.withColumn(col_name, regexp_replace(col(col_name), ",", "").cast("float"))
+
+#eurostat_df.dtypes
+
+# Αντικατάσταση των null τιμών με 0
+eurostat_df_new = eurostat_df.fillna(0)
+display(eurostat_df_new)
+
+
+#####################################################################################################
+
+
+# Ποιος ήταν ο μέσος όρος διανυκτερεύσεων για κάθε χώρα για το χρονικό διάστημα 2007-2014;
+
+# Επιλέγουμε τις στήλες από το 2007 μέχρι το 2014
+selected_columns = eurostat_df_new.columns[2:10]
+
+# Υπολογισμός Μέσου Όρου ανά γραμμή
+eurostat_df_1 = eurostat_df_new.withColumn(
+    "Average_Overnights_2007-2014",
+    sum(eurostat_df_new[col] for col in selected_columns) / len(selected_columns),
+).select("GEO/TIME", "Average_Overnights_2007-2014")
+
+print("Ποιος ήταν ο μέσος όρος διανυκτερεύσεων για κάθε χώρα για το χρονικό διάστημα 2007-2014;")
+display(eurostat_df_1)
+
+
+#####################################################################################################
+
+
+# Για πόσες και ποιες χρονιές ήταν ο αριθμός διανυκτερεύσεων της χώρας Ελλάδα υψηλότερος από 5 άλλες ευρωπαικές χώρες (Βέλγιο, Βουλγαρία, Τσεχία, Δανία, Γερμανία)
+
+# Κρατάμε στο dataframe μόνο τις χώρες που μας αφορούν
+eurostat_df_2 = eurostat_df_new.withColumn("row_number", F.row_number().over(Window.orderBy(F.monotonically_increasing_id())))
+#display(eurostat_df_2)
+
+grammes = [1, 2, 3, 4, 5, 8]
+selected_columns = eurostat_df_new.columns[1:]
+
+# Διανυκτερεύσεις στην Ελλάδα (2006-2015)
+greece_df = eurostat_df_2.filter(col("GEO/TIME") == "Greece").select(selected_columns)
+
+# Διανυκτερεύσεις σε Βέλγιο, Βουλγαρία, Τσεχία, Δανία, Γερμανία (2006-2015)
+eurostat_df_2 = eurostat_df_2.filter(col("row_number").isin(grammes)).drop("row_number")
+
+counter = 0
+
+for column in selected_columns:
+    greece_value = eurostat_df_2.filter(col("GEO/TIME") == "Greece").select(column).first()[column]
+    greece_largest = True
+
+    for row_number in range(1, eurostat_df_2.count()):
+        current_value = eurostat_df_2.filter(col("row_number") == row_number).select(column).first()[column]
+        if greece_value <= current_value:
+            greece_largest = False
+            break  
+
+    if greece_largest:
+        counter = counter + 1
+        print("Περισσότερες διανυκτερεύσεις τουριστών στην Ελλάδα την χρονιά: ", column)
+
+print("Ο συνολικός αριθμός ετών που ο αριθμός διανυκτερεύσεων Ελλάδας ήταν υψηλότερος από αυτόν του Βελγίου, της Βουλγαρίας, της Τσεχίας, της Δανίας και της Γερμανίας είναι: ", counter)
+
+
+#####################################################################################################
+
+
+# Ποιες ήταν οι χώρες με το μεγαλύτερο αριθμό διανυκτερεύσεων ανά έτος;
+
+selected_columns = [str(year) for year in range(2006, 2016)]
+
+eurostat_df_max = eurostat_df_new.select(
+    [
+        first("GEO/TIME").over(
+            Window.orderBy(col(year).desc())
+        ).alias(f"Max_overnight_{year}")
+        for year in selected_columns
+    ]
+)
+eurostat_df_max = eurostat_df_max.limit(1)
+
+print("Ποιες ήταν οι χώρες με το μεγαλύτερο αριθμό διανυκτερεύσεων ανά έτος;")
+eurostat_df_max.show(truncate=False)
+
+
+#####################################################################################################
+
+
+# Ποια ήταν η χρονιά που η κάθε χώρα είχε το μικρότερο αριθμό διανυκτερεύσεων;
+
+# Στήλες που μας ενδιαφέρουν (2006-2015) --> selected_columns
+
+# Ελάχιστος αριθμός διανυκτερεύσεων για κάθε χώρα
+eurostat_df_min = eurostat_df_new.withColumn("Min_Overnights", least(*selected_columns))
+
+# Βρίσκουμε τη χρονία με τς λιγότερες διανυκτερεύσεις για κάθε χώρα
+eurostat_df_min = eurostat_df_min.withColumn(
+    "Year",
+    F.coalesce(*[F.when(F.col(col) == F.col("Min_Overnights"), F.lit(int(col))).otherwise(None) for col in selected_columns])
+)
+
+# Αποτέλεσμα με τις στήλες των Χωρών, του αριθμού ελάχιστων διανυκτερεύσεων και της αντίστοιχης χρονιάς
+result_df = eurostat_df_min.select("GEO/TIME", "Min_Overnights", "Year")
+result_df.show(result_df.count(), truncate=False)

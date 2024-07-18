@@ -1,0 +1,214 @@
+# Απαραίτητες Βιβλιοθήκες
+
+from pyspark.sql import functions
+from pyspark.sql.types import StringType, FloatType
+from pyspark.sql.functions import col, avg, month, year, date_format, max, min, format_number, year
+
+
+#####################################################################################################
+
+
+# Δημιουργία Dataframe για τα αρχεία agn.us.txt, ainv.us.txt, ale.us.txt
+
+# Path για το αρχεία
+agn_file_path = "dbfs:/FileStore/tables/agn_us.txt"
+ainv_file_path = "dbfs:/FileStore/tables/ainv_us.txt"
+ale_file_path = "dbfs:/FileStore/tables/ale_us.txt"
+
+# Διάβασμα Αρχείων και Δημιουργία dataframe για τα τρία αρχεία
+agn_df = spark.read.csv(agn_file_path, header=True)
+ainv_df = spark.read.csv(ainv_file_path, header=True)
+ale_df = spark.read.csv(ale_file_path, header=True)
+
+# Κάνουμε τα παρακάτω στήλες τύπου float από string 
+float_columns = ["Open", "High", "Low", "Close", "Volume", "OpenInt"]
+for column in float_columns:
+    agn_df = agn_df.withColumn(column, agn_df[column].cast(FloatType()))
+    ainv_df = ainv_df.withColumn(column, ainv_df[column].cast(FloatType()))
+    ale_df = ale_df.withColumn(column, ale_df[column].cast(FloatType()))
+
+display(agn_df)
+display(ainv_df)
+display(ale_df)
+
+
+#####################################################################################################
+
+
+# Ποιος ήταν ο μέσος όρος για τις τιμές του ανοίγματος, κλεισίματος και όγκου συναλλαγών για κάθε ημερολογιακό μήνα για κάθε μετοχή;
+
+# Μετοχή agn
+agn_avg = agn_df.groupBy(month("Date").alias("Month")).agg(avg("Open").alias("Average Open"), avg("Close").alias("Average Close"), avg("Volume").alias("Average Volume")).orderBy("Month")
+
+print("Ποιος ήταν ο μέσος όρος για τις τιμές του ανοίγματος, κλεισίματος και όγκου συναλλαγών για κάθε ημερολογιακό μήνα για την μεταχοή agn;")
+agn_avg.show(truncate=False)
+
+# Μετοχή ainv
+ainv_avg = ainv_df.groupBy(month("Date").alias("Month")).agg(avg("Open").alias("Average Open"), avg("Close").alias("Average Close"), avg("Volume").alias("Average Volume")).orderBy("Month")
+
+print("Ποιος ήταν ο μέσος όρος για τις τιμές του ανοίγματος, κλεισίματος και όγκου συναλλαγών για κάθε ημερολογιακό μήνα για την μεταχοή ainv;")
+ainv_avg.show(truncate=False)
+
+# Μετοχή ale
+ale_avg = ale_df.groupBy(month("Date").alias("Month")).agg(avg("Open").alias("Average Open"), avg("Close").alias("Average Close"), avg("Volume").alias("Average Volume")).orderBy("Month")
+
+print("Ποιος ήταν ο μέσος όρος για τις τιμές του ανοίγματος, κλεισίματος και όγκου συναλλαγών για κάθε ημερολογιακό μήνα για την μεταχοή ale;")
+ale_avg.show(truncate=False)
+
+
+#####################################################################################################
+
+
+# Για πόσες ημέρες ήταν η τιμή του ανοίγματος της κάθε μετοχής πάνω από 35 δολάρια;
+
+agn_open = agn_df.filter(col("Open") > 35.0000).count() 
+print("Για πόσες ημέρες ήταν η τιμή του ανοίγματος της μετοχής agn πάνω από 35 δολάρια;") 
+display(agn_open)
+print()
+
+ainv_open = ainv_df.filter(col("Open") > 35.0000).count() 
+print("Για πόσες ημέρες ήταν η τιμή του ανοίγματος της μετοχής ainv πάνω από 35 δολάρια;") 
+display(ainv_open)
+print()
+
+ale_open = ale_df.filter(col("Open") > 35.0000).count() 
+print("Για πόσες ημέρες ήταν η τιμή του ανοίγματος της μετοχής ale πάνω από 35 δολάρια;") 
+display(ale_open)
+
+
+#####################################################################################################
+
+
+# Ποιες ήταν οι μέρες με την υψηλότερη τιμή στο άνοιγμα και ποιες με την υψηλότερη τιμή στον όγκο συναλλαγών για κάθε μετοχή;
+
+# agn: Εντοπίζουμε την μέγιστη τιμή του Open
+agn_max_open = (
+    agn_df
+    .agg(max("Open").alias("Maximum Open"))
+    .join(agn_df, col("Open") == col("Maximum Open"))
+    .select("Date", "Maximum Open")
+)
+print("Η μέρα με την υψηλότερη τιμή στο άνοιγμα για την μετοχή agn:")
+agn_max_open.show(truncate=False)
+
+# agn: Εντοπίζουμε την μέγιστη τιμή του Volume
+agn_max_volume = (
+    agn_df
+    .agg(max("Volume").alias("Maximum Volume"))
+    .join(agn_df, col("Volume") == col("Maximum Volume"))
+    .select("Date", format_number("Maximum Volume", 0).alias("Maximum Volume"))
+)
+print("Η μέρα με την υψηλότερη τιμή στον όγκο συναλλαγών για την μετοχή agn:")
+agn_max_volume.show(truncate=False)
+
+# ainv: Εντοπίζουμε την μέγιστη τιμή του Open
+ainv_max_open = (
+    ainv_df
+    .agg(max("Open").alias("Maximum Open"))
+    .join(ainv_df, col("Open") == col("Maximum Open"))
+    .select("Date", "Maximum Open")
+)
+print("Η μέρα με την υψηλότερη τιμή στο άνοιγμα για την μετοχή ainv:")
+ainv_max_open.show(truncate=False)
+
+# ainv: Εντοπίζουμε την μέγιστη τιμή του Volume
+ainv_max_volume = (
+    ainv_df
+    .agg(max("Volume").alias("Maximum Volume"))
+    .join(ainv_df, col("Volume") == col("Maximum Volume"))
+    .select("Date", format_number("Maximum Volume", 0).alias("Maximum Volume"))
+)
+print("Η μέρα με την υψηλότερη τιμή στον όγκο συναλλαγών για την μετοχή ainv:")
+ainv_max_volume.show(truncate=False)
+
+# ale: Εντοπίζουμε την μέγιστη τιμή του Open
+ale_max_open = (
+    ale_df
+    .agg(max("Open").alias("Maximum Open"))
+    .join(ale_df, col("Open") == col("Maximum Open"))
+    .select("Date", "Maximum Open")
+)
+print("Η μέρα με την υψηλότερη τιμή στο άνοιγμα για την μετοχή ale:")
+ale_max_open.show(truncate=False)
+
+# ale: Εντοπίζουμε την μέγιστη τιμή του Volume
+ale_max_volume = (
+    ale_df
+    .agg(max("Volume").alias("Maximum Volume"))
+    .join(ale_df, col("Volume") == col("Maximum Volume"))
+    .select("Date", format_number("Maximum Volume", 0).alias("Maximum Volume"))
+)
+print("Η μέρα με την υψηλότερη τιμή στον όγκο συναλλαγών για την μετοχή ale:")
+ale_max_volume.show(truncate=False)
+
+
+#####################################################################################################
+
+
+# Ποιες ήταν οι χρονιές που κάθε μετοχή σημείωσε την υψηλότερη τιμή στο άνοιγμα και ποιες και τη χαμηλότερη τιμή στο κλείσιμο;
+
+# agn: Εντοπίζουμε την χρονιά της μέγιστης τιμής του Open
+agn_df = agn_df.withColumn("Year", year("Date"))
+
+agn_max_open_year = (
+    agn_df
+    .agg(max("Open").alias("Maximum Open"))
+    .join(agn_df, (col("Open") == col("Maximum Open")))
+    .select("Year")
+)
+max_open_year_agn = agn_max_open_year.select("Year").first()[0]
+print(f"Η χρονιά με την υψηλότερη τιμή στο άνοιγμα για την μετοχή agn: {max_open_year_agn}\n")
+
+# agn: Εντοπίζουμε την χρονιά της ελάχιστης τιμής του Close
+agn_min_close_year = (
+    agn_df
+    .agg(min("Close").alias("Minimum Close"))
+    .join(agn_df, (col("Close") == col("Minimum Close")))
+    .select("Year")
+)
+min_close_year_agn = agn_min_close_year.select("Year").first()[0]
+print(f"Η χρονιά με την χαμηλότερη τιμή στο άνοιγμα για την μετοχή agn: {min_close_year_agn}\n")
+
+# ainv: Εντοπίζουμε την χρονιά της μέγιστης τιμής του Open
+ainv_df = ainv_df.withColumn("Year", year("Date"))
+
+ainv_max_open_year = (
+    ainv_df
+    .agg(max("Open").alias("Maximum Open"))
+    .join(ainv_df, (col("Open") == col("Maximum Open")))
+    .select("Year")
+)
+max_open_year_ainv = ainv_max_open_year.select("Year").first()[0]
+print(f"Η χρονιά με την υψηλότερη τιμή στο άνοιγμα για την μετοχή ainv: {max_open_year_ainv}\n")
+
+# ainv: Εντοπίζουμε την χρονιά της ελάχιστης τιμής του Close
+ainv_min_close_year = (
+    ainv_df
+    .agg(min("Close").alias("Minimum Close"))
+    .join(ainv_df, (col("Close") == col("Minimum Close")))
+    .select("Year")
+)
+min_close_year_ainv = ainv_min_close_year.select("Year").first()[0]
+print(f"Η χρονιά με την χαμηλότερη τιμή στο άνοιγμα για την μετοχή ainv: {min_close_year_ainv}\n")
+
+# ale: Εντοπίζουμε την χρονιά της μέγιστης τιμής του Open
+ale_df = ale_df.withColumn("Year", year("Date"))
+
+ale_max_open_year = (
+    ale_df
+    .agg(max("Open").alias("Maximum Open"))
+    .join(ale_df, (col("Open") == col("Maximum Open")))
+    .select("Year")
+)
+max_open_year_ale = ale_max_open_year.select("Year").first()[0]
+print(f"Η χρονιά με την υψηλότερη τιμή στο άνοιγμα για την μετοχή ale: {max_open_year_ale}\n")
+
+# ale: Εντοπίζουμε την χρονιά της ελάχιστης τιμής του Close
+ale_min_close_year = (
+    ale_df
+    .agg(min("Close").alias("Minimum Close"))
+    .join(ale_df, (col("Close") == col("Minimum Close")))
+    .select("Year")
+)
+min_close_year_ale = ale_min_close_year.select("Year").first()[0]
+print(f"Η χρονιά με την χαμηλότερη τιμή στο άνοιγμα για την μετοχή ale: {min_close_year_ale}\n")

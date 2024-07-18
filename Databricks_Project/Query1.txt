@@ -1,0 +1,159 @@
+# Απαραίτητες Βιβλιοθήκες
+
+from pyspark.sql import functions
+from pyspark.sql.functions import col, avg, month, sqrt, sum
+from pyspark.sql.types import FloatType
+
+
+#####################################################################################################
+
+
+# Δημιουργία Dataframe για την Θερμοκρασία
+
+# Path για το αρχείο tempm.txt
+tempm_file_path = "dbfs:/FileStore/tables/tempm.txt"
+
+# Διάβασμα Αρχείου και Δημιουργία dataframe
+tempm_df = spark.read.text(tempm_file_path)
+
+# Parse το dataframe σε ξεχωριστές στήλες
+tempm_df = tempm_df.selectExpr("CAST(value AS STRING) AS json_str")
+tempm_df = tempm_df.selectExpr("from_json(json_str, 'MAP<STRING, STRING>') AS data")
+tempm_df = tempm_df.selectExpr("explode(data) AS (timestamp, temperature)")
+
+# Μετατροπή του column temperature σε float
+tempm_df = tempm_df.withColumn("temperature", col("temperature").cast(FloatType()))
+
+tempm_df.show()
+#display(tempm_df)
+
+
+#####################################################################################################
+
+
+# Δημιουργία Dataframe για την Υγρασία
+
+# Path για το αρχείο hum.txt
+hum_file_path = "dbfs:/FileStore/tables/hum.txt"
+
+# Διάβασμα Αρχείου και Δημιουργία dataframe
+hum_df = spark.read.text(hum_file_path)
+
+# Parse το dataframe σε ξεχωριστές στήλες
+hum_df = hum_df.selectExpr("CAST(value AS STRING) AS json_str")
+hum_df = hum_df.selectExpr("from_json(json_str, 'MAP<STRING, STRING>') AS data")
+hum_df = hum_df.selectExpr("explode(data) AS (timestamp, humidity)")
+
+# Μετατροπή του column humidity σε float
+hum_df = hum_df.withColumn("humidity", col("humidity").cast(FloatType()))
+
+hum_df.show()
+#display(hum_df) 
+
+
+#####################################################################################################
+
+
+# Σε πόσες μέρες η θερμοκρασία κυμάνθηκε από 18 βαθμούς Κελσίου έως 22 βαθμούς Κελσίου;
+
+# Παίρνουμε μόνο τις γραμμές με θερμοκρασία στο διάστημα [18,22]
+filtered_tempm_df = tempm_df.filter((col("temperature") >= 18) & (col("temperature") <= 22))
+
+# Dataframe με ημερομηνία μόνο αντί για timestamp
+filtered_tempm_df = filtered_tempm_df.withColumn("date", col("timestamp").cast("date"))
+
+# Επιλέγουμε διακριτές ημερομηνίες από το filtered_temp_df
+distinct_dates = filtered_tempm_df.select("date").distinct().collect()
+num_of_days = len(distinct_dates)
+
+# ΑΠΑΝΤΗΣΗ
+print("Σε πόσες μέρες η θερμοκρασία κυμάνθηκε από 18 °C  έως 22 °C;")   
+print("ΑΠΑΝΤΗΣΗ:", num_of_days)
+
+
+#####################################################################################################
+
+
+# Ποιες ήταν οι 10 πιο κρύες μέρες και οι 10 πιο ζεστές μέρες;
+
+dates_df = tempm_df.withColumn("date", col("timestamp").cast("date"))
+
+# 10 πιο Κρύες Μέρες Βάσει Μέσης Θερμοκρασίας
+coldest_days_avg = dates_df.groupBy("date").agg(avg("temperature").alias("min_temperature")).orderBy("min_temperature").limit(10)
+
+# 10 πιο Ζεστές Μέρες Βάσει Μέσης Θερμοκρασίας
+hottest_days_avg = dates_df.groupBy("date").agg(avg("temperature").alias("max_temperature")).orderBy("max_temperature", ascending=False).limit(10)
+
+# ΑΠΑΝΤΗΣΗ
+print("Ποιες ήταν οι 10 πιο κρύες μέρες;")
+coldest_days_avg.show(truncate=False)
+
+print("Ποιες ήταν οι 10 πιο ζεστές μέρες;")
+hottest_days_avg.show(truncate=False)
+
+
+#####################################################################################################
+
+
+# Ποιος μήνας είχε την υψηλότερη τυπική απόκλιση στις τιμές της υγρασίας;
+
+# Μέση Υγρασία Κάθε Μήνα
+avg_hum = hum_df.groupBy(month("timestamp").alias("month")).agg(avg("humidity").alias("avg_humidity"))
+
+# Προσθήκη Στήλης Month στο hum_df
+hum_df = hum_df.withColumn("month", month("timestamp"))
+
+# Διαφορές Τετραγώνων
+diafores_tetragwnwn = (
+    hum_df.join(avg_hum, "month")
+    .withColumn("diafores_tetragwnwn", (col("humidity") - avg_hum["avg_humidity"])**2)
+    .select("month", "timestamp", "humidity", "avg_humidity", "diafores_tetragwnwn")
+)
+
+# Άθροισμα Διαφορών Τετραγώνων Κάθε Μήνα
+sum_diafwrwn_tetragwnwn = (
+    diafores_tetragwnwn
+    .groupBy("month")
+    .agg(sum("diafores_tetragwnwn").alias("Άθροισμα Διαφορών Τετραγώνων"))
+    .select(col("month").alias("Μήνας"), col("Άθροισμα Διαφορών Τετραγώνων"))
+)
+
+# Αριθμός Μετρήσεων Κάθε Μήνα
+num_rows_per_month = hum_df.groupBy("month").count()
+
+# Υπολογισμός Τυπικής Απόκλισης 
+tupiki_apoklisi = (
+    sum_diafwrwn_tetragwnwn
+    .join(num_rows_per_month, sum_diafwrwn_tetragwnwn["Μήνας"] == num_rows_per_month["month"])
+    .withColumn("tupiki_apoklisi", sqrt(col("Άθροισμα Διαφορών Τετραγώνων") / col("count")))
+    .select("Μήνας",  col("tupiki_apoklisi").alias("Τυπική Απόκλιση"))
+)
+
+#ΑΠΑΝΤΗΣΗ
+max_ta = tupiki_apoklisi.orderBy(functions.desc("Τυπική Απόκλιση")).limit(1)
+print("Ποιος μήνας είχε την υψηλότερη τυπική απόκλιση στις τιμές της υγρασίας;")
+max_ta.show(truncate=False)
+
+
+#####################################################################################################
+
+
+# Ποια ήταν η μέγιστη και ποια η ελάχιστη τιμή του δείκτη δυσφορίας;
+
+# Συνδυασμός dataframe υγρασίας, θερμοκρασίας και υπολογισμός DI
+DI_upologismos = (
+    tempm_df
+    .join(hum_df, tempm_df["timestamp"] == hum_df["timestamp"])
+    .na.drop(subset=["temperature", "humidity"])  # Βγάζουμε τις NULL τιμές
+    .withColumn("DI", col("temperature")-0.55*(1-0.01*col("humidity"))*(col("temperature")-14.5))
+    .select(tempm_df["timestamp"], "temperature", "humidity", "DI")
+)
+
+# Μέγιστο και Ελάχιστο DI
+max_DI = DI_upologismos.orderBy(col("DI").desc()).limit(1).select("DI")
+min_DI = DI_upologismos.orderBy(col("DI").asc()).limit(1).select("DI")
+
+print("Η ελάχιστη τιμή του δείκτη δυσφορίας είναι: ")
+min_DI.show(truncate=False)
+print("Η μέγιστη τιμή του δείκτη δυσφορίας είναι: ")
+max_DI.show(truncate=False)
