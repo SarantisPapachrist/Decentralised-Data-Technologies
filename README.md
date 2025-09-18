@@ -1,1 +1,1 @@
-# Decentralised-Data-Technologies
+# Decentralized-Data-Technologies
